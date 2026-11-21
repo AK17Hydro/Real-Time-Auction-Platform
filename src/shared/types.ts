@@ -1,6 +1,8 @@
 
 export type AuctionStatus = 'LIVE' | 'SCHEDULED' | 'CLOSED';
 
+export type AuctionCategory = 'ELECTRONICS' | 'VEHICLES' | 'COLLECTIBLES' | 'FASHION' | 'HOME' | 'OTHER';
+
 export interface BidRecord {
     id: string;
     bidderID: string;
@@ -12,6 +14,9 @@ export interface AuctionDTO {
     id: string;
     title: string;
     description: string;
+    category: AuctionCategory;
+
+
     startingPrice: number;
     currentPrice: number;
     status: AuctionStatus;
