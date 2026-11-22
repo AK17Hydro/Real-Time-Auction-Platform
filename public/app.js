@@ -69,28 +69,35 @@ socket.addEventListener("message", (event) => {
 
         switch (message.type) {
             case "AUCTION_STARTED":
+                updateAuctionStatus(message.auctionId, "LIVE");
                 showToast(
-                    `Auction ${message.auctionId} has started!`,
-                    "success"
+                    `${message.payload?.title ?? "An auction"} has started!`,
+                    message.auctionId
                 );
                 break;
 
-            case "NEW_BID_ALERT":
-                showToast(
-                    `A new bid was placed on auction ${message.auctionId}.`,
-                    "info"
-                );
+            case "NEW_BID_ALERT": {
+                const amount = message.payload?.amount;
+
+                const notification = amount !== undefined
+                    ? `A new bid of ${amount} was placed!`
+                    : "A new bid was placed on an auction you follow!";
+
+                showToast(notification, message.auctionId);
                 break;
+            }
 
             case "NEW_LISTING": {
-                const auction = message.payload?.auction ??
-                                message.payload;
+                const auction = message.payload?.auction ?? message.payload;
 
-                if (auction?.id) {
-                    addAuctionToCatalog(auction);
+                if (!auction || !auction.id) {
+                    console.warn("Received NEW_LISTING without valid auction data.");
+                    break;
                 }
 
-                showToast("A new auction listing is available!", "success");
+                addAuctionToCatalog(auction);
+
+                showToast(`New auction available: ${auction.title}`);
                 break;
             }
 
@@ -107,18 +114,41 @@ socket.addEventListener("message", (event) => {
 // 4. Display toast notifications
 // ==========================================
 
-function showToast(message, type = "info") {
-    const container = document.getElementById("notification-container");
-
+function showToast(message, auctionId = null) {
     const toast = document.createElement("div");
-    toast.className = `alert alert-${type} auction-toast`;
-    toast.textContent = message;
+    toast.className = "alert alert-info notification-toast";
 
-    container.appendChild(toast);
+    const text = document.createElement("span");
+    text.textContent = message;
+    toast.appendChild(text);
 
-    setTimeout(() => {
-        toast.remove();
-    }, 5000);
+    if (auctionId) {
+        const viewButton = document.createElement("button");
+        viewButton.type = "button";
+        viewButton.className = "btn btn-sm btn-primary ms-3";
+        viewButton.textContent = "View auction";
+
+        viewButton.addEventListener("click", () => {
+            openAuction(auctionId);
+        });
+
+        toast.appendChild(viewButton);
+    }
+
+    document.getElementById("notification-container").appendChild(toast);
+
+    setTimeout(() => toast.remove(), 5000);
+}
+
+function openAuction(auctionId) {
+    if (socket.readyState !== WebSocket.OPEN) {
+        showToast("Cannot open auction: connection unavailable.");
+        return;
+    }
+
+    sendMessage("JOIN_ROOM", auctionId);
+
+    showToast(`Joining auction ${auctionId}...`);
 }
 
 
@@ -132,6 +162,38 @@ function addAuctionToCatalog(auction) {
     auctions.set(auction.id, auction);
     renderAuction(auction);
 }
+
+
+function updateAuctionStatus(auctionId, newStatus) {
+    const auction = auctions.get(auctionId);
+
+    if (!auction) {
+        console.warn(`Auction ${auctionId} is not in the catalog.`);
+        return;
+    }
+
+    auction.status = newStatus;
+
+    // Re-render the card in the appropriate catalog section.
+    renderAuction(auction);
+}
+
+
+function formatCountdown(milliseconds) {
+    if (milliseconds <= 0) {
+        return "Starting soon...";
+    }
+
+    const totalSeconds = Math.floor(milliseconds / 1000);
+
+    const days = Math.floor(totalSeconds / 86400);
+    const hours = Math.floor((totalSeconds % 86400) / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+
+    return `Starts in: ${days}d ${hours}h ${minutes}m ${seconds}s`;
+}
+
 
 function renderAuction(auction) {
     const isScheduled = auction.status === "SCHEDULED";
@@ -172,11 +234,32 @@ function renderAuction(auction) {
     status.className = "badge auction-status bg-primary";
     status.textContent = auction.status;
 
+    let countdown = null;
+
+    if (isScheduled) {
+        countdown = document.createElement("p");
+        countdown.className = "auction-countdown mt-2";
+        countdown.dataset.startTime = auction.startTime;
+
+        countdown.textContent = formatCountdown(
+            new Date(auction.startTime).getTime() - Date.now()
+        );
+    }
+
     const subscribeButton = document.createElement("button");
-    subscribeButton.className = "btn btn-outline-primary btn-sm";
-    subscribeButton.textContent = "Subscribe";
+    subscribeButton.className = "btn btn-sm";
     subscribeButton.dataset.action = "subscribe";
     subscribeButton.dataset.auctionId = auction.id;
+
+    const isSubscribed = subscriptions.has(auction.id);
+
+    subscribeButton.textContent = isSubscribed
+        ? "Unsubscribe"
+        : "Subscribe";
+
+    subscribeButton.classList.add(
+        isSubscribed ? "btn-primary" : "btn-outline-primary"
+    );
 
     const openButton = document.createElement("button");
     openButton.className = "btn btn-primary btn-sm";
@@ -184,9 +267,17 @@ function renderAuction(auction) {
     openButton.dataset.action = "open";
     openButton.dataset.auctionId = auction.id;
 
-    body.append(title, description, price, status,
-                document.createElement("br"),
-                subscribeButton, openButton);
+    body.append(title, description, price, status);
+
+    if (countdown) {
+        body.appendChild(countdown);
+    }
+
+    body.append(
+        document.createElement("br"),
+        subscribeButton,
+        openButton
+    );
 
     card.appendChild(body);
     column.appendChild(card);
@@ -209,29 +300,24 @@ document.addEventListener("click", (event) => {
     const action = button.dataset.action;
 
     if (action === "subscribe") {
-        if (subscriptions.has(auctionId)) {
+        const isSubscribed = subscriptions.has(auctionId);
+
+        if (isSubscribed) {
             sendMessage("UNSUBSCRIBE_ITEM", auctionId);
             subscriptions.delete(auctionId);
-            button.textContent = "Subscribe";
-            button.classList.replace(
-                "btn-primary",
-                "btn-outline-primary"
-            );
         } else {
             sendMessage("SUBSCRIBE_ITEM", auctionId);
             subscriptions.add(auctionId);
-            button.textContent = "Unsubscribe";
-            button.classList.replace(
-                "btn-outline-primary",
-                "btn-primary"
-            );
         }
+
+        button.textContent = isSubscribed ? "Subscribe" : "Unsubscribe";
+
+        button.classList.toggle("btn-primary", !isSubscribed);
+        button.classList.toggle("btn-outline-primary", isSubscribed);
     }
 
     if (action === "open") {
-        // Bidding screen navigation will be implemented
-        // when the bidding interface is integrated.
-        showToast(`Selected auction: ${auctionId}`);
+        sendMessage("JOIN_ROOM", auctionId);
     }
 });
 
@@ -305,3 +391,11 @@ startOption.addEventListener("change", () => {
     scheduledTimeGroup.hidden = !scheduled;
     startTimeInput.required = scheduled;
 });
+
+setInterval(() => {
+    document.querySelectorAll(".auction-countdown").forEach((element) => {
+        const startTime = new Date(element.dataset.startTime).getTime();
+
+        element.textContent = formatCountdown(startTime - Date.now());
+    });
+}, 1000);
