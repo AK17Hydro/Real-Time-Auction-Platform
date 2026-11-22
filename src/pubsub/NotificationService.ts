@@ -1,6 +1,7 @@
 
 import EventBroker from "./EventBroker";
 import ConnectionManager from "../singleton/ConnectionManager";
+import { NotificationMessage } from "../shared/types";
 
 class NotificationService {
     private subscribers: Map<string, Set<string>> = new Map();
@@ -58,7 +59,7 @@ class NotificationService {
     private async handleAuctionStarted(eventData: any): Promise<void> {
         const { auctionId } = eventData;
 
-        const message = {
+        const message: NotificationMessage = {
             type: "AUCTION_STARTED",
             auctionId,
             payload: eventData,
@@ -74,7 +75,7 @@ class NotificationService {
     private async handleBidPlaced(eventData: any): Promise<void> {
         const { auctionId, bidderId } = eventData;
 
-        const message = {
+        const message: NotificationMessage = {
             type: "NEW_BID_ALERT",
             auctionId,
             senderId: bidderId,
@@ -97,7 +98,7 @@ class NotificationService {
 
     // Notify everyone when a new auction is created
     private async handleAuctionCreated(eventData: any): Promise<void> {
-        const message = {
+        const message: NotificationMessage = {
             type: "NEW_LISTING",
             auctionId: eventData.auctionId,
             payload: eventData,

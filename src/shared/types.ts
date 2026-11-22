@@ -24,3 +24,16 @@ export interface AuctionDTO {
     startTime: string;        
     endTime: string;
 }
+
+export type NotificationType =
+    | 'AUCTION_STARTED'
+    | 'NEW_BID_ALERT'
+    | 'NEW_LISTING';
+
+export interface NotificationMessage {
+    type: NotificationType;
+    auctionId?: string;
+    senderId?: string;
+    payload: unknown;
+    timestamp: string;
+}
